@@ -1,4 +1,37 @@
+import nodemailer from "nodemailer";
+
+/**
+ * Email providers, first match wins:
+ *   1. SMTP (e.g. Gmail + app password): set SMTP_USER and SMTP_PASS
+ *   2. Resend REST API: set RESEND_API_KEY
+ *   3. Neither: the message is printed to the server console, so local dev works offline
+ */
+let transport: nodemailer.Transporter | null = null;
+const smtp = () => {
+  const user = process.env.SMTP_USER,
+    pass = process.env.SMTP_PASS?.replace(/\s+/g, ""); // Google shows app passwords with spaces
+  if (!user || !pass) return null;
+  const port = Number(process.env.SMTP_PORT ?? 465);
+  return (transport ??= nodemailer.createTransport({
+    host: process.env.SMTP_HOST ?? "smtp.gmail.com",
+    port,
+    secure: port === 465,
+    auth: { user, pass },
+  }));
+};
+
 export async function sendMail(to: string, subject: string, html: string) {
+  const t = smtp();
+  if (t) {
+    // Gmail only sends as the authenticated account (or a verified alias), so default From to it.
+    const from = process.env.MAIL_FROM ?? `FlowDesk <${process.env.SMTP_USER}>`;
+    try {
+      await t.sendMail({ from, to, subject, html });
+    } catch (e) {
+      console.error("SMTP send failed:", (e as Error).message);
+    }
+    return;
+  }
   const key = process.env.RESEND_API_KEY;
   if (!key) {
     console.log(
